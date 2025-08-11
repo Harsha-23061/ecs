@@ -1,5 +1,4 @@
 name: Deploy to ECS
-
 on:
   push:
     branches:
@@ -26,18 +25,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build, Tag, and Push to ECR
         run: |
           if [[ "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -45,7 +41,6 @@ jobs:
           else
             IMAGE_TAG="${{ github.sha }}"
           fi
-
           docker build -t ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG .
           docker push ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG
 
@@ -56,55 +51,55 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Deploy to ECS (Staging)
+      - name: Deploy to ECS
         run: |
-          set -e
-
           echo "Fetching current task definition..."
           TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition ${{ vars.ECS_TASK_DEFINITION_STAGING }} \
             --region ${{ vars.AWS_REGION }} \
-            --query 'taskDefinition' \
-            --output json)
+            | jq '.taskDefinition')
 
-          echo "Updating container image to ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}..."
+          echo "Updating container image..."
           UPDATED_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq --arg IMAGE "${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}" '
             .containerDefinitions[0].image = $IMAGE
-            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .registeredAt, .registeredBy)
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .registeredAt,
+                .registeredBy,
+                .compatibilities,
+                .tags
+              )
           ')
 
           echo "Registering new task definition..."
-          NEW_TASK_ARN=$(aws ecs register-task-definition \
+          NEW_TASK_RESP=$(aws ecs register-task-definition \
             --region ${{ vars.AWS_REGION }} \
-            --cli-input-json "$UPDATED_TASK_DEF" \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
+            --cli-input-json "$UPDATED_TASK_DEF")
 
-          echo "Updating ECS service to new revision..."
+          NEW_REVISION=$(echo "$NEW_TASK_RESP" | jq -r '.taskDefinition.family + ":" + (.taskDefinition.revision | tostring)')
+
+          echo "Updating ECS service..."
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_STAGING }} \
             --service ${{ vars.ECS_SERVICE_STAGING }} \
-            --task-definition "$NEW_TASK_ARN" \
+            --task-definition "$NEW_REVISION" \
             --region ${{ vars.AWS_REGION }}
 
-          echo "Waiting for ECS service to stabilize..."
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_STAGING }} \
             --services ${{ vars.ECS_SERVICE_STAGING }} \
             --region ${{ vars.AWS_REGION }}
-
-          echo "✅ Staging deployment completed successfully."
 
   deploy-production:
     needs: build-and-push
@@ -113,52 +108,52 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Deploy to ECS (Production)
+      - name: Deploy to ECS
         run: |
-          set -e
-
           echo "Fetching current task definition..."
           TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition ${{ vars.ECS_TASK_DEFINITION_PRODUCTION }} \
             --region ${{ vars.AWS_REGION }} \
-            --query 'taskDefinition' \
-            --output json)
+            | jq '.taskDefinition')
 
-          echo "Updating container image to ${{ secrets.ECR_REPOSITORY }}:${{ github.ref_name }}..."
+          echo "Updating container image..."
           UPDATED_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq --arg IMAGE "${{ secrets.ECR_REPOSITORY }}:${{ github.ref_name }}" '
             .containerDefinitions[0].image = $IMAGE
-            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .registeredAt, .registeredBy)
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .registeredAt,
+                .registeredBy,
+                .compatibilities,
+                .tags
+              )
           ')
 
           echo "Registering new task definition..."
-          NEW_TASK_ARN=$(aws ecs register-task-definition \
+          NEW_TASK_RESP=$(aws ecs register-task-definition \
             --region ${{ vars.AWS_REGION }} \
-            --cli-input-json "$UPDATED_TASK_DEF" \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
+            --cli-input-json "$UPDATED_TASK_DEF")
 
-          echo "Updating ECS service to new revision..."
+          NEW_REVISION=$(echo "$NEW_TASK_RESP" | jq -r '.taskDefinition.family + ":" + (.taskDefinition.revision | tostring)')
+
+          echo "Updating ECS service..."
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER_PRODUCTION }} \
             --service ${{ vars.ECS_SERVICE_PRODUCTION }} \
-            --task-definition "$NEW_TASK_ARN" \
+            --task-definition "$NEW_REVISION" \
             --region ${{ vars.AWS_REGION }}
 
-          echo "Waiting for ECS service to stabilize..."
           aws ecs wait services-stable \
             --cluster ${{ vars.ECS_CLUSTER_PRODUCTION }} \
             --services ${{ vars.ECS_SERVICE_PRODUCTION }} \
             --region ${{ vars.AWS_REGION }}
-
-          echo "✅ Production deployment completed successfully."
