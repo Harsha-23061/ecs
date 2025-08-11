@@ -36,6 +36,25 @@ jobs:
             echo "ECS_TASK_DEFINITION=${{ vars.ECS_TASK_DEFINITION_STAGING }}" >> $GITHUB_ENV
           fi
 
+      - name: Validate ECS environment variables
+        run: |
+          echo "Validating ECS environment variables..."
+          if [ -z "$ECS_CLUSTER" ]; then
+            echo "Error: ECS_CLUSTER is not set!"
+            exit 1
+          fi
+          if [ -z "$ECS_SERVICE" ]; then
+            echo "Error: ECS_SERVICE is not set!"
+            exit 1
+          fi
+          if [ -z "$ECS_TASK_DEFINITION" ]; then
+            echo "Error: ECS_TASK_DEFINITION is not set!"
+            exit 1
+          fi
+          echo "ECS_CLUSTER: $ECS_CLUSTER"
+          echo "ECS_SERVICE: $ECS_SERVICE"
+          echo "ECS_TASK_DEFINITION: $ECS_TASK_DEFINITION"
+
       - name: Fetch current task definition
         id: fetch-task
         run: |
