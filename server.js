@@ -5,7 +5,7 @@ const HOST = '0.0.0.0'; // Listen on all interfaces
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Hello from ECS Fargate!\n');
+  res.end('Hello from ECS Fargate with actions deployment!\n');
 });
 
 server.listen(PORT, HOST, () => {
