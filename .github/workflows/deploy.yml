@@ -51,9 +51,13 @@ jobs:
             echo "Error: ECS_TASK_DEFINITION is not set!"
             exit 1
           fi
-          echo "ECS_CLUSTER: $ECS_CLUSTER"
-          echo "ECS_SERVICE: $ECS_SERVICE"
-          echo "ECS_TASK_DEFINITION: $ECS_TASK_DEFINITION"
+          echo "ECS_CLUSTER: '$ECS_CLUSTER'"
+          echo "ECS_SERVICE: '$ECS_SERVICE'"
+          echo "ECS_TASK_DEFINITION: '$ECS_TASK_DEFINITION'"
+
+      - name: Debug AWS Region
+        run: |
+          echo "AWS Region: $AWS_REGION"
 
       - name: Fetch current task definition
         id: fetch-task
@@ -93,10 +97,38 @@ jobs:
             --region "${{ vars.AWS_REGION }}")
           echo "NEW_TASK_ARN=$NEW_TASK_ARN" >> $GITHUB_ENV
 
+          # Extract family and revision to use in update-service
+          NEW_TASK_FAMILY=$(aws ecs describe-task-definition \
+            --task-definition "$NEW_TASK_ARN" \
+            --query 'taskDefinition.family' \
+            --output text \
+            --region "${{ vars.AWS_REGION }}")
+
+          NEW_TASK_REVISION=$(aws ecs describe-task-definition \
+            --task-definition "$NEW_TASK_ARN" \
+            --query 'taskDefinition.revision' \
+            --output text \
+            --region "${{ vars.AWS_REGION }}")
+
+          NEW_TASK_FAMILY_REVISION="${NEW_TASK_FAMILY}:${NEW_TASK_REVISION}"
+          echo "NEW_TASK_FAMILY_REVISION=$NEW_TASK_FAMILY_REVISION" >> $GITHUB_ENV
+
+      - name: Debug ECS vars before update-service
+        run: |
+          echo "Cluster length: ${#ECS_CLUSTER}"
+          echo "Service length: ${#ECS_SERVICE}"
+          echo "Task Definition ARN length: ${#NEW_TASK_ARN}"
+          echo "Task Definition Family:Revision length: ${#NEW_TASK_FAMILY_REVISION}"
+          echo "Cluster raw: '${ECS_CLUSTER}'"
+          echo "Service raw: '${ECS_SERVICE}'"
+          echo "Task Definition ARN raw: '${NEW_TASK_ARN}'"
+          echo "Task Definition Family:Revision raw: '${NEW_TASK_FAMILY_REVISION}'"
+
       - name: Update ECS service
         run: |
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
-            --task-definition "$NEW_TASK_ARN" \
-            --region "${{ vars.AWS_REGION }}"
+            --task-definition "$NEW_TASK_FAMILY_REVISION" \
+            --region "${{ vars.AWS_REGION }}" \
+            --debug
